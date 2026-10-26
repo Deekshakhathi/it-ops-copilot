@@ -4,6 +4,8 @@ import streamlit as st
 from datetime import datetime
 from html import escape
 
+from components.chat_panel import render_chat_panel
+
 # ── Config ──────────────────────────────────────────────────────────────────
 API_BASE = "http://localhost:8000/api/tickets"
 
@@ -35,6 +37,13 @@ CATEGORIES = list(CATEGORY_ICONS.keys())
 PRIORITIES = ["Low", "Medium", "High", "Critical"]
 STATUSES   = ["Open", "In Progress", "Resolved", "Closed"]
 
+NAV_LABELS = {
+    "📊 Dashboard":     "▦\u2003Dashboard",
+    "🎫 All Tickets":   "☰\u2003All Tickets",
+    "➕ New Ticket":    "✚\u2003New Ticket",
+    "✏️ Update Ticket": "✎\u2003Update Ticket",
+}
+
 BLUES = ["#0C66E4", "#1D7AFC", "#388BFF", "#579DFF", "#85B8FF", "#09326C", "#0055CC"]
 
 # ── Page setup ───────────────────────────────────────────────────────────────
@@ -63,17 +72,23 @@ html, body, [class*="css"], .stApp {
 }
 .stApp { background: var(--canvas); color: var(--ink); }
 .stApp p, .stApp label, .stApp li, .stApp span, .stApp h1, .stApp h2, .stApp h3 { color: var(--ink); }
-#MainMenu, footer, [data-testid="stToolbar"], [data-testid="stDecoration"] { display: none !important; }
+#MainMenu, footer, [data-testid="stDecoration"], [data-testid="stToolbarActions"],
+[data-testid="stAppDeployButton"], [data-testid="stMainMenu"], .stDeployButton { display: none !important; }
+[data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapsedControl"] {
+    display: flex !important; visibility: visible !important; opacity: 1 !important;
+}
+[data-testid="stExpandSidebarButton"] *, [data-testid="stSidebarCollapsedControl"] * { color: var(--brand) !important; }
 
 /* Top bar */
 [data-testid="stHeader"] {
     background: rgba(255,255,255,0.9) !important;
     backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--line);
-    height: 3.2rem;
+    min-height: 4.5rem;
+    z-index: 100 !important;
 }
 [data-testid="stHeader"] button, [data-testid="stHeader"] svg { color: var(--ink-2) !important; }
-.block-container { padding-top: 5rem; max-width: 1400px; }
+.block-container { padding-top: 1.25rem; max-width: 1400px; }
 
 /* ── Sidebar ─────────────────────────────────────────────── */
 .stApp [data-testid="stSidebar"] {
@@ -102,8 +117,10 @@ html, body, [class*="css"], .stApp {
     padding: 9px 12px; border-radius: 8px; width: 100%; cursor: pointer;
     transition: background 0.15s;
 }
-/* hide the radio dot, keep only the text block */
-.stApp [data-testid="stSidebar"] [role="radiogroup"] label > div:not(:has([data-testid="stMarkdownContainer"])) { display: none !important; }
+/* hide the radio dot (anything in the label that is not the text) */
+.stApp [data-testid="stSidebar"] [role="radiogroup"] > * { width: 100% !important; }
+.stApp [data-testid="stSidebar"] [role="radiogroup"] label { display: flex !important; }
+.stApp [data-testid="stSidebar"] [role="radiogroup"] label *:not(input):not([data-testid="stMarkdownContainer"]):not([data-testid="stMarkdownContainer"] *):not(:has([data-testid="stMarkdownContainer"])) { display: none !important; }
 .stApp [data-testid="stSidebar"] [role="radiogroup"] label p { color: #CFE0FF; font-weight: 500; font-size: 0.93rem; }
 .stApp [data-testid="stSidebar"] [role="radiogroup"] label:hover { background: rgba(255,255,255,0.09); }
 .stApp [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
@@ -111,18 +128,6 @@ html, body, [class*="css"], .stApp {
     box-shadow: inset 3px 0 0 #fff;
 }
 .stApp [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p { color: #fff; font-weight: 600; }
-
-/* line icons for nav items */
-.stApp [data-testid="stSidebar"] [role="radiogroup"] label p::before {
-    content: ""; display: inline-block; width: 18px; height: 18px; margin-right: 11px;
-    vertical-align: -4px; background: currentColor;
-    -webkit-mask: var(--ico) center / contain no-repeat; mask: var(--ico) center / contain no-repeat;
-}
-.stApp [data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type(1) { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='7' height='9'/%3E%3Crect x='14' y='3' width='7' height='5'/%3E%3Crect x='14' y='12' width='7' height='9'/%3E%3Crect x='3' y='16' width='7' height='5'/%3E%3C/svg%3E"); }
-.stApp [data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type(2) { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 8a2 2 0 0 0 0 8v3h18v-3a2 2 0 0 1 0-8V5H3z'/%3E%3Cpath d='M13 5v14' stroke-dasharray='2 3'/%3E%3C/svg%3E"); }
-.stApp [data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type(3) { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 5v14M5 12h14'/%3E%3C/svg%3E"); }
-.stApp [data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type(4) { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z'/%3E%3C/svg%3E"); }
-.stApp [data-testid="stSidebar"] [role="radiogroup"] label:nth-of-type(5) { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6'/%3E%3C/svg%3E"); }
 
 .stApp .side-title { font-size:0.78rem; font-weight:600; color:#A9C7F5; margin-bottom:8px; }
 .stApp .api-pill {
@@ -184,7 +189,7 @@ hr { border: none !important; border-top: 1px solid var(--line) !important; marg
     padding: 1.6rem;
     box-shadow: var(--shadow);
 }
-.stTextInput input, .stTextArea textarea, [data-baseweb="select"] > div {
+.stTextInput input, .stTextArea textarea {
     background: #fff !important;
     border: 1px solid #C1CAD9 !important;
     border-radius: 8px !important;
@@ -193,8 +198,38 @@ hr { border: none !important; border-top: 1px solid var(--line) !important; marg
 }
 [data-baseweb="select"] div, [data-baseweb="select"] span { color: var(--ink) !important; }
 .stTextInput input::placeholder, .stTextArea textarea::placeholder { color: #8993A4 !important; }
-.stTextInput input:hover, .stTextArea textarea:hover, [data-baseweb="select"] > div:hover { border-color: #8590A2 !important; }
-.stTextInput input:focus, .stTextArea textarea:focus, [data-baseweb="select"] > div:focus-within {
+/* Selectboxes: put the visible border on BaseWeb's inner control, not its wrapper. */
+div[data-baseweb="select"] {
+    background: transparent !important;
+    border: 0 !important;
+    min-height: 46px !important;
+}
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
+    background: #FFFFFF !important;
+    border: 1px solid #AAB7CA !important;
+    border-radius: 8px !important;
+    box-shadow: inset 0 0 0 1px rgba(23,43,77,0.025) !important;
+    box-sizing: border-box !important;
+    min-height: 44px !important;
+    padding-left: 4px;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div:hover {
+    border-color: #7183A0 !important;
+}
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div:focus-within,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div:focus-within {
+    border-color: var(--focus) !important;
+    box-shadow: 0 0 0 3px rgba(56,139,255,0.22) !important;
+}
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div > div,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div {
+    background: transparent !important;
+}
+.stTextInput input:hover, .stTextArea textarea:hover { border-color: #8590A2 !important; }
+.stTextInput input:focus, .stTextArea textarea:focus {
     border-color: var(--focus) !important;
     box-shadow: 0 0 0 3px rgba(56,139,255,0.25) !important;
 }
@@ -264,6 +299,160 @@ hr { border: none !important; border-top: 1px solid var(--line) !important; marg
 .stApp .tbl tbody tr:last-child td { border-bottom:none; }
 .stApp .tbl td.mx-key { font-weight:600; color:var(--ink-2); }
 .stApp .tbl td.mx-cell { text-align:center; font-weight:600; }
+
+
+/* ── Application navigation bar ─────────────────────────── */
+/* Keep the brand and action fully below Streamlit's own header.
+   Avoid sticky positioning here: Streamlit's header can paint over the top row. */
+/* ── Application navigation bar ─────────────────────────── */
+.st-key-app_topbar {
+    position: sticky;
+    top: 4.75rem;
+    z-index: 1000;
+    background: rgba(255,255,255,0.97);
+    border: 1px solid #DCE1EA;
+    border-radius: 14px;
+    padding: 0.65rem 1rem;
+    margin-top: 0.5rem;
+    margin-bottom: 1.25rem;
+    min-height: 68px;
+    box-sizing: border-box;
+    overflow: visible;
+    box-shadow: 0 4px 18px rgba(9,30,66,0.07);
+    backdrop-filter: blur(12px);
+}
+.st-key-app_topbar [data-testid="stHorizontalBlock"] { align-items: center; gap: 0.75rem; }
+.stApp .topbar-brand { display:flex; align-items:center; gap:10px; min-height:42px; }
+.stApp .topbar-mark {
+    display:flex; align-items:center; justify-content:center; width:36px; height:36px;
+    border-radius:11px; color:#fff; font-size:1.1rem;
+    background:linear-gradient(135deg,#635BFF 0%,#0C66E4 100%);
+    box-shadow:0 4px 10px rgba(12,102,228,0.22);
+}
+.stApp .topbar-title { color:#172B4D; font-weight:750; font-size:0.98rem; line-height:1.15; }
+.stApp .topbar-subtitle { color:#6B778C; font-size:0.72rem; margin-top:3px; }
+.st-key-app_topbar [data-testid="stButton"] > button {
+    min-height:42px; border-radius:11px !important;
+    background:linear-gradient(135deg,#635BFF 0%,#0C66E4 100%) !important;
+    color:#fff !important; border:1px solid rgba(255,255,255,0.25) !important;
+    font-weight:650 !important; padding:0.55rem 1rem !important;
+    box-shadow:0 5px 14px rgba(12,102,228,0.22) !important;
+    white-space:nowrap;
+}
+.st-key-app_topbar [data-testid="stButton"] > button:hover {
+    filter:brightness(1.06); transform:translateY(-1px);
+    box-shadow:0 7px 18px rgba(12,102,228,0.30) !important;
+}
+.st-key-app_topbar [data-testid="stButton"] > button p { color:#fff !important; }
+
+/* ── Fixed right chat drawer: independent scroll, distinct from workspace ── */
+.st-key-agent_chat_drawer {
+    position: fixed !important;
+    top: 4.35rem !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: min(420px, calc(100vw - 1rem)) !important;
+    height: auto !important;
+    max-height: calc(100dvh - 4.35rem) !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain !important;
+    z-index: 1000000 !important;
+    box-sizing: border-box !important;
+    padding: 1rem 1rem 1.2rem !important;
+    background: linear-gradient(180deg, #F1F6FF 0%, #F8FAFE 42%, #F4F7FC 100%) !important;
+    border-left: 3px solid #B8CDED !important;
+    border-top: 1px solid #DCE4F0 !important;
+    border-radius: 18px 0 0 0 !important;
+    box-shadow: -16px 0 42px rgba(14,35,70,0.18) !important;
+}
+.st-key-agent_chat_drawer [data-testid="stVerticalBlock"] { gap: 0.55rem; }
+.st-key-agent_chat_drawer [data-testid="stHorizontalBlock"] { align-items: center; gap: 0.5rem; }
+/* Drawer header stays visible and the close button is always obvious. */
+.st-key-agent_chat_header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 1000002 !important;
+    background: linear-gradient(180deg, #F1F6FF 0%, #F1F6FF 90%, rgba(241,246,255,0.96) 100%) !important;
+    padding: 0.2rem 0 0.35rem !important;
+    margin: -0.1rem 0 0 !important;
+    border-bottom: 0 !important;
+}
+.st-key-agent_chat_header [data-testid="stButton"] > button {
+    min-width: 38px !important;
+    width: 38px !important;
+    height: 38px !important;
+    padding: 0 !important;
+    border: 1px solid #C7D7EE !important;
+    border-radius: 10px !important;
+    background: #FFFFFF !important;
+    color: #243B5A !important;
+    font-size: 1.05rem !important;
+    box-shadow: 0 2px 7px rgba(23,43,77,0.09) !important;
+}
+.st-key-agent_chat_header [data-testid="stButton"] > button p { color: #243B5A !important; }
+.st-key-agent_chat_header [data-testid="stButton"] > button:hover {
+    background: #E5EFFF !important;
+    border-color: #8FB4EE !important;
+}
+.st-key-agent_chat_drawer [data-testid="stButton"] > button {
+    border-radius: 9px !important; min-height: 38px;
+}
+.st-key-agent_chat_drawer [data-testid="stTextArea"] textarea {
+    border: 1px solid #B8C7DC !important; border-radius: 10px !important;
+    background: #FFFFFF !important;
+}
+.stApp .chat-drawer-title { font-size: 1.08rem; font-weight: 750; color: #172B4D; }
+.stApp .chat-drawer-subtitle { font-size: 0.8rem; color: #607491; margin-top: 3px; }
+.stApp .chat-drawer-welcome {
+    padding: 0.85rem 0.95rem; border: 1px solid #D4E1F4; border-radius: 12px;
+    background: linear-gradient(135deg, #E5EFFF 0%, #F8FBFF 100%); color: #344563;
+    font-size: 0.84rem; line-height: 1.5; margin: 0.25rem 0 0.4rem;
+}
+.stApp .chat-drawer-divider {
+    border-top: 1px solid #C9D8EC; margin: 0.45rem 0 0.65rem;
+}
+.stApp .chat-drawer-footer-note { color:#6B778C; font-size:0.72rem; line-height:1.35; }
+.st-key-agent_chat_drawer [data-testid="stChatMessage"] {
+    background: #FFFFFF; border: 1px solid #D8E3F1; border-radius: 12px;
+    padding: 0.45rem 0.65rem; margin-bottom: 0.4rem;
+    box-shadow: 0 2px 7px rgba(23,43,77,0.035);
+}
+.st-key-agent_chat_drawer [data-testid="stChatMessage"] p { color: #172B4D !important; }
+.st-key-agent_chat_drawer [data-testid="stForm"] {
+    position: sticky !important;
+    bottom: 0 !important;
+    background: #FFFFFF !important;
+    border: 1px solid #D1DFF0 !important;
+    border-radius: 13px !important;
+    padding: 0.7rem !important;
+    box-shadow: 0 5px 18px rgba(9,30,66,0.09) !important;
+}
+.st-key-agent_chat_drawer [data-testid="stFormSubmitButton"] > button {
+    background: linear-gradient(135deg, #635BFF, #0C66E4) !important;
+    color: #FFFFFF !important;
+}
+/* Strong last-in-cascade selector for selectbox borders in normal state. */
+[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+    border: 1px solid #AAB7CA !important;
+    background: #FFFFFF !important;
+    border-radius: 8px !important;
+    box-shadow: inset 0 0 0 1px rgba(23,43,77,0.025) !important;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"] > div:hover,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div:hover { border-color: #7183A0 !important; }
+[data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div:focus-within {
+    border-color: #388BFF !important;
+    box-shadow: 0 0 0 3px rgba(56,139,255,0.22) !important;
+}
+@media (max-width: 640px) {
+    .st-key-app_topbar { padding:0.45rem 0.55rem; min-height:56px; }
+    .stApp .topbar-subtitle { display:none; }
+    .st-key-app_topbar [data-testid="stButton"] > button { padding:0.45rem 0.55rem !important; font-size:0.82rem; }
+    .st-key-agent_chat_drawer { right:0 !important; width:min(100vw, 420px) !important; top:4.1rem !important; max-height:calc(100dvh - 4.1rem) !important; border-radius:16px 0 0 0 !important; }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -309,21 +498,6 @@ def api_patch(ticket_id: str, data: dict):
         return None, detail
     except Exception as e:
         return None, str(e)
-
-
-def api_delete(ticket_id: str):
-    try:
-        r = requests.delete(f"{API_BASE}/{ticket_id}", timeout=6)
-        r.raise_for_status()
-        return True, None
-    except requests.HTTPError as e:
-        try:
-            detail = e.response.json().get("detail", str(e))
-        except Exception:
-            detail = str(e)
-        return False, detail
-    except Exception as e:
-        return False, str(e)
 
 
 def fmt_dt(iso_str: str) -> str:
@@ -424,27 +598,36 @@ with st.sidebar:
     st.markdown("---")
     page = st.radio(
         "Navigate",
-        ["📊 Dashboard", "🎫 All Tickets", "➕ New Ticket", "✏️ Update Ticket", "🗑️ Delete Ticket"],
+        ["📊 Dashboard", "🎫 All Tickets", "➕ New Ticket", "✏️ Update Ticket"],
         label_visibility="collapsed",
-        format_func=lambda x: x.split(" ", 1)[1],
+        format_func=lambda x: NAV_LABELS[x],
     )
     st.markdown("---")
-    st.markdown('<div class="side-title">API status</div>', unsafe_allow_html=True)
-    tickets_probe, probe_err = api_get("", params={})
-    if probe_err:
+
+
+# ── Persistent top navigation and right-side agent drawer ────────────────────
+if "show_chat_panel" not in st.session_state:
+    st.session_state.show_chat_panel = False
+
+with st.container(key="app_topbar"):
+    nav_brand, nav_action = st.columns([6, 2], vertical_alignment="center")
+    with nav_brand:
         st.markdown(
-            '<div class="api-pill"><span class="dot" style="background:#FF8F73"></span>Backend offline</div>'
-            f'<div class="api-note">{escape(str(probe_err))}</div>',
+            '<div class="topbar-brand">'
+            '<div class="topbar-mark">✦</div>'
+            '<div><div class="topbar-title">IT Ops Copilot</div>'
+            '<div class="topbar-subtitle">Incident intelligence workspace</div></div>'
+            '</div>',
             unsafe_allow_html=True,
         )
-    else:
-        st.markdown(
-            '<div class="api-pill"><span class="dot" style="background:#4ADE80"></span>Backend online</div>'
-            '<div class="api-note">http://localhost:8000</div>',
-            unsafe_allow_html=True,
-        )
-    st.markdown("---")
-    st.caption("Built with FastAPI + Streamlit")
+    with nav_action:
+        if st.button("✦  Chat with Agent", key="global_chat_toggle", use_container_width=True):
+            st.session_state.show_chat_panel = not st.session_state.show_chat_panel
+            st.rerun()
+
+if st.session_state.show_chat_panel:
+    with st.container(key="agent_chat_drawer"):
+        render_chat_panel()
 
 
 # ── Fetch all tickets (cached per run) ───────────────────────────────────────
@@ -750,56 +933,3 @@ elif page == "✏️ Update Ticket":
         else:
             st.success(f"✅ Ticket **{result['ticket_id']}** updated — Status: **{result['status']}**")
             st.cache_data.clear()
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# PAGE: Delete Ticket
-# ════════════════════════════════════════════════════════════════════════════
-elif page == "🗑️ Delete Ticket":
-    page_header("Delete Ticket", "Permanently remove a ticket from the system")
-
-    all_tickets, err = fetch_all_tickets()
-    if err:
-        st.error(f"⚠️ {err}")
-        st.stop()
-
-    if not all_tickets:
-        st.info("No tickets found.")
-        st.stop()
-
-    ticket_options = {f"{t['ticket_id']} — {t['title']}": t for t in all_tickets}
-    selected_label = st.selectbox("Select Ticket to Delete", list(ticket_options.keys()))
-    selected = ticket_options[selected_label]
-
-    st.markdown("---")
-    st.markdown(f"""
-    <div class="ticket-card" style="border-left-color:#C9372C">
-        <div style="display:flex;justify-content:space-between">
-            <div>
-                <span class="ticket-key" style="color:#C9372C">{selected['ticket_id']}</span>
-                &nbsp;&nbsp;
-                {priority_badge(selected['priority'])}
-                &nbsp;
-                {status_badge(selected['status'])}
-            </div>
-        </div>
-        <div class="ticket-title" style="font-size:1.05rem">
-            {CATEGORY_ICONS.get(selected['category'], '🔧')} {selected['title']}
-        </div>
-        <div class="ticket-meta" style="margin-top:0.3rem">
-            {selected['description'][:150]}{'...' if len(selected['description']) > 150 else ''}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.warning("⚠️ This action is **permanent** and cannot be undone.")
-
-    confirm = st.checkbox(f"I confirm I want to delete **{selected['ticket_id']}**")
-    if st.button("Delete ticket", disabled=not confirm):
-        ok, err = api_delete(selected["ticket_id"])
-        if err:
-            st.error(f"❌ Delete failed: {err}")
-        else:
-            st.success(f"✅ Ticket **{selected['ticket_id']}** has been deleted.")
-            st.cache_data.clear()
-            st.rerun()

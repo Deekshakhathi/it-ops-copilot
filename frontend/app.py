@@ -2,22 +2,25 @@ import requests
 import pandas as pd
 import streamlit as st
 from datetime import datetime
+from html import escape
+
+from components.chat_panel import render_chat_panel
 
 # ── Config ──────────────────────────────────────────────────────────────────
 API_BASE = "http://localhost:8000/api/tickets"
 
 PRIORITY_COLORS = {
-    "Critical": "#ff4757",
-    "High":     "#ffa502",
-    "Medium":   "#eccc68",
-    "Low":      "#2ed573",
+    "Critical": "#C9372C",
+    "High":     "#E56910",
+    "Medium":   "#946F00",
+    "Low":      "#1F845A",
 }
 
 STATUS_COLORS = {
-    "Open":        "#ff4757",
-    "In Progress": "#ffa502",
-    "Resolved":    "#2ed573",
-    "Closed":      "#747d8c",
+    "Open":        "#505F79",
+    "In Progress": "#0C66E4",
+    "Resolved":    "#1F845A",
+    "Closed":      "#6B778C",
 }
 
 CATEGORY_ICONS = {
@@ -34,6 +37,15 @@ CATEGORIES = list(CATEGORY_ICONS.keys())
 PRIORITIES = ["Low", "Medium", "High", "Critical"]
 STATUSES   = ["Open", "In Progress", "Resolved", "Closed"]
 
+NAV_LABELS = {
+    "📊 Dashboard":     "▦\u2003Dashboard",
+    "🎫 All Tickets":   "☰\u2003All Tickets",
+    "➕ New Ticket":    "✚\u2003New Ticket",
+    "✏️ Update Ticket": "✎\u2003Update Ticket",
+}
+
+BLUES = ["#0C66E4", "#1D7AFC", "#388BFF", "#579DFF", "#85B8FF", "#09326C", "#0055CC"]
+
 # ── Page setup ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="IT Ops Copilot",
@@ -42,123 +54,405 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS ───────────────────────────────────────────────────────────────
+# ── Custom CSS (modern Atlassian-style: blue + white) ────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-
-.stApp {
-    background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #0d1117 100%);
-    min-height: 100vh;
+:root {
+    --ink: #172B4D;  --ink-2: #44546F;  --ink-3: #6B778C;
+    --line: #DCE1EA; --surface: #FFFFFF; --canvas: #F4F7FB;
+    --brand: #0C66E4; --brand-hover: #0055CC; --brand-deep: #09326C;
+    --tint-1: #E9F2FF; --tint-2: #CCE0FF; --focus: #388BFF;
+    --shadow: 0 1px 2px rgba(9,30,66,0.08), 0 4px 14px rgba(9,30,66,0.05);
 }
 
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
-    border-right: 1px solid rgba(99,179,237,0.15);
+html, body, [class*="css"], .stApp {
+    font-family: 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
+.stApp { background: var(--canvas); color: var(--ink); }
+.stApp p, .stApp label, .stApp li, .stApp span, .stApp h1, .stApp h2, .stApp h3 { color: var(--ink); }
+#MainMenu, footer, [data-testid="stDecoration"], [data-testid="stToolbarActions"],
+[data-testid="stAppDeployButton"], [data-testid="stMainMenu"], .stDeployButton { display: none !important; }
+[data-testid="stExpandSidebarButton"], [data-testid="stSidebarCollapsedControl"] {
+    display: flex !important; visibility: visible !important; opacity: 1 !important;
+}
+[data-testid="stExpandSidebarButton"] *, [data-testid="stSidebarCollapsedControl"] * { color: var(--brand) !important; }
 
+/* Top bar */
+[data-testid="stHeader"] {
+    background: rgba(255,255,255,0.9) !important;
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+    min-height: 4.5rem;
+    z-index: 100 !important;
+}
+[data-testid="stHeader"] button, [data-testid="stHeader"] svg { color: var(--ink-2) !important; }
+.block-container { padding-top: 1.25rem; max-width: 1400px; }
+
+/* ── Sidebar ─────────────────────────────────────────────── */
+.stApp [data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #0B55C4 0%, #09326C 100%);
+    border-right: none;
+}
+.stApp [data-testid="stSidebar"] p,
+.stApp [data-testid="stSidebar"] span,
+.stApp [data-testid="stSidebar"] label,
+.stApp [data-testid="stSidebar"] div { color: #DCE9FF; }
+.stApp [data-testid="stSidebar"] button,
+.stApp [data-testid="stSidebar"] button svg { color: #fff !important; fill: #fff; }
+.stApp [data-testid="stSidebar"] hr { border-top: 1px solid rgba(255,255,255,0.18) !important; }
+
+.stApp .brand { display:flex; align-items:center; gap:12px; padding:6px 0 4px; }
+.stApp .brand-logo {
+    width:36px; height:36px; border-radius:9px; background:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:1.1rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.stApp .brand-name { font-weight:700; font-size:1.05rem; color:#fff; line-height:1.15; }
+.stApp .brand-sub  { font-size:0.74rem; color:#A9C7F5; }
+
+.stApp [data-testid="stSidebar"] [role="radiogroup"] { gap: 4px; }
+.stApp [data-testid="stSidebar"] [role="radiogroup"] label {
+    padding: 9px 12px; border-radius: 8px; width: 100%; cursor: pointer;
+    transition: background 0.15s;
+}
+/* hide the radio dot (anything in the label that is not the text) */
+.stApp [data-testid="stSidebar"] [role="radiogroup"] > * { width: 100% !important; }
+.stApp [data-testid="stSidebar"] [role="radiogroup"] label { display: flex !important; }
+.stApp [data-testid="stSidebar"] [role="radiogroup"] label *:not(input):not([data-testid="stMarkdownContainer"]):not([data-testid="stMarkdownContainer"] *):not(:has([data-testid="stMarkdownContainer"])) { display: none !important; }
+.stApp [data-testid="stSidebar"] [role="radiogroup"] label p { color: #CFE0FF; font-weight: 500; font-size: 0.93rem; }
+.stApp [data-testid="stSidebar"] [role="radiogroup"] label:hover { background: rgba(255,255,255,0.09); }
+.stApp [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
+    background: rgba(255,255,255,0.17);
+    box-shadow: inset 3px 0 0 #fff;
+}
+.stApp [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p { color: #fff; font-weight: 600; }
+
+.stApp .side-title { font-size:0.78rem; font-weight:600; color:#A9C7F5; margin-bottom:8px; }
+.stApp .api-pill {
+    display:flex; align-items:center; gap:9px; padding:9px 12px; border-radius:8px;
+    background: rgba(255,255,255,0.12); color:#fff; font-size:0.88rem; font-weight:500;
+}
+.stApp .api-pill .dot { width:9px; height:9px; border-radius:50%; flex:none; }
+.stApp .api-note { margin-top:8px; font-size:0.76rem; color:#A9C7F5; word-break:break-word; }
+
+/* ── Page header ─────────────────────────────────────────── */
+.stApp .crumb { font-size:0.8rem; color:var(--ink-3); margin-bottom:6px; }
+.stApp .page-title { font-size:1.75rem; font-weight:700; color:var(--ink); line-height:1.2; letter-spacing:-0.015em; }
+.stApp .page-sub { color:var(--ink-3); margin:6px 0 0; font-size:0.92rem; }
+hr { border: none !important; border-top: 1px solid var(--line) !important; margin: 1.3rem 0 !important; }
+
+/* ── KPI metrics ─────────────────────────────────────────── */
 [data-testid="stMetric"] {
-    background: rgba(22,27,34,0.8);
-    border: 1px solid rgba(99,179,237,0.2);
-    border-radius: 16px;
-    padding: 1.2rem 1.5rem;
-    backdrop-filter: blur(10px);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-[data-testid="stMetric"]:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 8px 30px rgba(99,179,237,0.15);
-}
-[data-testid="stMetricLabel"] { color: #8b949e !important; font-size: 0.85rem !important; }
-[data-testid="stMetricValue"] { color: #e6edf3 !important; font-size: 2rem !important; font-weight: 700 !important; }
-
-.stButton > button {
-    background: linear-gradient(135deg, #1f6feb 0%, #388bfd 100%);
-    color: white;
-    border: none;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-top: 4px solid var(--brand);
     border-radius: 10px;
-    font-weight: 600;
-    padding: 0.5rem 1.4rem;
-    transition: all 0.2s ease;
-    box-shadow: 0 4px 15px rgba(31,111,235,0.3);
+    padding: 1rem 1.25rem;
+    box-shadow: var(--shadow);
 }
-.stButton > button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px rgba(31,111,235,0.5);
+[data-testid="stColumn"]:nth-child(1) [data-testid="stMetric"] { border-top-color: #09326C; }
+[data-testid="stColumn"]:nth-child(2) [data-testid="stMetric"] { border-top-color: #0C66E4; }
+[data-testid="stColumn"]:nth-child(3) [data-testid="stMetric"] { border-top-color: #579DFF; }
+[data-testid="stColumn"]:nth-child(4) [data-testid="stMetric"] { border-top-color: #C9372C; }
+[data-testid="stColumn"]:nth-child(5) [data-testid="stMetric"] { border-top-color: #1F845A; }
+[data-testid="stMetricLabel"] p { color: var(--ink-3) !important; font-size: 0.82rem !important; font-weight: 500; }
+[data-testid="stMetricValue"]   { color: var(--ink) !important; font-size: 2rem !important; font-weight: 700 !important; }
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.stButton > button,
+[data-testid="stFormSubmitButton"] > button {
+    background: var(--brand);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+    padding: 0.55rem 1.2rem;
+    box-shadow: 0 1px 2px rgba(9,30,66,0.2);
+    transition: background 0.15s, box-shadow 0.15s;
+}
+.stButton > button:hover,
+[data-testid="stFormSubmitButton"] > button:hover {
+    background: var(--brand-hover); color:#fff;
+    box-shadow: 0 4px 12px rgba(12,102,228,0.35);
+}
+.stButton > button p, [data-testid="stFormSubmitButton"] > button p { color:#fff; }
+.stButton > button:disabled { background: #E9EBEF; box-shadow: none; }
+.stButton > button:disabled p { color: #8993A4; }
+
+/* ── Forms & inputs ──────────────────────────────────────── */
+[data-testid="stForm"] {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.6rem;
+    box-shadow: var(--shadow);
+}
+.stTextInput input, .stTextArea textarea {
+    background: #fff !important;
+    border: 1px solid #C1CAD9 !important;
+    border-radius: 8px !important;
+    color: var(--ink) !important;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+[data-baseweb="select"] div, [data-baseweb="select"] span { color: var(--ink) !important; }
+.stTextInput input::placeholder, .stTextArea textarea::placeholder { color: #8993A4 !important; }
+/* Selectboxes: put the visible border on BaseWeb's inner control, not its wrapper. */
+div[data-baseweb="select"] {
+    background: transparent !important;
+    border: 0 !important;
+    min-height: 46px !important;
+}
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div {
+    background: #FFFFFF !important;
+    border: 1px solid #AAB7CA !important;
+    border-radius: 8px !important;
+    box-shadow: inset 0 0 0 1px rgba(23,43,77,0.025) !important;
+    box-sizing: border-box !important;
+    min-height: 44px !important;
+    padding-left: 4px;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div:hover,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div:hover {
+    border-color: #7183A0 !important;
+}
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div:focus-within,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div:focus-within {
+    border-color: var(--focus) !important;
+    box-shadow: 0 0 0 3px rgba(56,139,255,0.22) !important;
+}
+[data-testid="stSelectbox"] div[data-baseweb="select"] > div > div,
+[data-testid="stMultiSelect"] div[data-baseweb="select"] > div > div {
+    background: transparent !important;
+}
+.stTextInput input:hover, .stTextArea textarea:hover { border-color: #8590A2 !important; }
+.stTextInput input:focus, .stTextArea textarea:focus {
+    border-color: var(--focus) !important;
+    box-shadow: 0 0 0 3px rgba(56,139,255,0.25) !important;
+}
+[data-testid="stWidgetLabel"] p { font-size: 0.84rem; font-weight: 600; color: var(--ink-2); }
+[data-baseweb="popover"] [role="listbox"], [data-baseweb="popover"] ul, [data-baseweb="menu"] {
+    background: #fff !important; border-radius: 8px;
+}
+[data-baseweb="popover"] li, [data-baseweb="popover"] li * { color: var(--ink) !important; background: transparent; }
+[data-baseweb="popover"] li:hover, [data-baseweb="popover"] li[aria-selected="true"] { background: var(--tint-1) !important; }
+
+/* ── Expanders & alerts ──────────────────────────────────── */
+[data-testid="stExpander"] {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+}
+[data-testid="stExpander"] summary:hover { background: var(--tint-1); }
+[data-testid="stExpander"] summary, [data-testid="stExpander"] summary * { color: var(--ink) !important; font-weight: 600; }
+[data-testid="stAlert"] { border-radius: 8px; }
+
+/* ── Lozenges ────────────────────────────────────────────── */
+.stApp .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.3px;
+    text-transform: uppercase; vertical-align: middle;
 }
 
-[data-testid="stForm"] {
-    background: rgba(22,27,34,0.9);
-    border: 1px solid rgba(99,179,237,0.2);
-    border-radius: 16px;
-    padding: 1.5rem;
+/* ── Ticket cards ────────────────────────────────────────── */
+.stApp .ticket-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--brand);
+    border-radius: 10px;
+    padding: 1rem 1.3rem;
+    margin-bottom: 0.7rem;
+    box-shadow: var(--shadow);
+    transition: box-shadow 0.15s, border-color 0.15s;
+}
+.stApp .ticket-card:hover { box-shadow: 0 6px 20px rgba(9,30,66,0.12); }
+.stApp .ticket-key { color: var(--brand); font-size: 0.84rem; font-weight: 600; }
+.stApp .ticket-meta { color: var(--ink-3); font-size: 0.8rem; }
+.stApp .ticket-title { margin-top: 0.45rem; color: var(--ink); font-weight: 600; font-size: 1rem; }
+.stApp .section-header { font-size: 1.02rem; font-weight: 600; color: var(--ink); margin-bottom: 0.8rem; }
+
+/* ── Dashboard panels & bar lists ────────────────────────── */
+.stApp .panel {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.1rem 1.3rem 0.8rem; box-shadow: var(--shadow); height: 100%;
+}
+.stApp .bar-row { display:grid; grid-template-columns: 105px 1fr 30px; align-items:center; gap:12px; margin-bottom:14px; }
+.stApp .bar-label { font-size:0.84rem; color:var(--ink-2); font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.stApp .bar-track { height:10px; background:var(--tint-1); border-radius:6px; overflow:hidden; }
+.stApp .bar-fill  { height:100%; border-radius:6px; }
+.stApp .bar-count { font-size:0.88rem; font-weight:700; color:var(--ink); text-align:right; }
+
+/* ── Tables ──────────────────────────────────────────────── */
+.stApp .tbl-wrap { background:var(--surface); border:1px solid var(--line); border-radius:12px; overflow-x:auto; box-shadow:var(--shadow); }
+.stApp .tbl { width:100%; border-collapse:collapse; font-size:0.87rem; }
+.stApp .tbl th {
+    text-align:left; padding:11px 16px; background:#F7F8FA; color:var(--ink-3);
+    font-weight:600; font-size:0.78rem; border-bottom:2px solid var(--line); white-space:nowrap;
+}
+.stApp .tbl td { padding:12px 16px; border-bottom:1px solid #EEF1F6; color:var(--ink); }
+.stApp .tbl tbody tr:hover { background:#F1F6FF; }
+.stApp .tbl tbody tr:last-child td { border-bottom:none; }
+.stApp .tbl td.mx-key { font-weight:600; color:var(--ink-2); }
+.stApp .tbl td.mx-cell { text-align:center; font-weight:600; }
+
+
+/* ── Application navigation bar ─────────────────────────── */
+/* Keep the brand and action fully below Streamlit's own header.
+   Avoid sticky positioning here: Streamlit's header can paint over the top row. */
+/* ── Application navigation bar ─────────────────────────── */
+.st-key-app_topbar {
+    position: sticky;
+    top: 4.75rem;
+    z-index: 1000;
+    background: rgba(255,255,255,0.97);
+    border: 1px solid #DCE1EA;
+    border-radius: 14px;
+    padding: 0.65rem 1rem;
+    margin-top: 0.5rem;
+    margin-bottom: 1.25rem;
+    min-height: 68px;
+    box-sizing: border-box;
+    overflow: visible;
+    box-shadow: 0 4px 18px rgba(9,30,66,0.07);
     backdrop-filter: blur(12px);
 }
+.st-key-app_topbar [data-testid="stHorizontalBlock"] { align-items: center; gap: 0.75rem; }
+.stApp .topbar-brand { display:flex; align-items:center; gap:10px; min-height:42px; }
+.stApp .topbar-mark {
+    display:flex; align-items:center; justify-content:center; width:36px; height:36px;
+    border-radius:11px; color:#fff; font-size:1.1rem;
+    background:linear-gradient(135deg,#635BFF 0%,#0C66E4 100%);
+    box-shadow:0 4px 10px rgba(12,102,228,0.22);
+}
+.stApp .topbar-title { color:#172B4D; font-weight:750; font-size:0.98rem; line-height:1.15; }
+.stApp .topbar-subtitle { color:#6B778C; font-size:0.72rem; margin-top:3px; }
+.st-key-app_topbar [data-testid="stButton"] > button {
+    min-height:42px; border-radius:11px !important;
+    background:linear-gradient(135deg,#635BFF 0%,#0C66E4 100%) !important;
+    color:#fff !important; border:1px solid rgba(255,255,255,0.25) !important;
+    font-weight:650 !important; padding:0.55rem 1rem !important;
+    box-shadow:0 5px 14px rgba(12,102,228,0.22) !important;
+    white-space:nowrap;
+}
+.st-key-app_topbar [data-testid="stButton"] > button:hover {
+    filter:brightness(1.06); transform:translateY(-1px);
+    box-shadow:0 7px 18px rgba(12,102,228,0.30) !important;
+}
+.st-key-app_topbar [data-testid="stButton"] > button p { color:#fff !important; }
 
-.stTextInput > div > div > input,
-.stTextArea > div > div > textarea,
-.stSelectbox > div > div > div {
-    background: rgba(13,17,23,0.8) !important;
-    border: 1px solid rgba(99,179,237,0.25) !important;
+/* ── Fixed right chat drawer: independent scroll, distinct from workspace ── */
+.st-key-agent_chat_drawer {
+    position: fixed !important;
+    top: 4.35rem !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: min(420px, calc(100vw - 1rem)) !important;
+    height: auto !important;
+    max-height: calc(100dvh - 4.35rem) !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain !important;
+    z-index: 1000000 !important;
+    box-sizing: border-box !important;
+    padding: 1rem 1rem 1.2rem !important;
+    background: linear-gradient(180deg, #F1F6FF 0%, #F8FAFE 42%, #F4F7FC 100%) !important;
+    border-left: 3px solid #B8CDED !important;
+    border-top: 1px solid #DCE4F0 !important;
+    border-radius: 18px 0 0 0 !important;
+    box-shadow: -16px 0 42px rgba(14,35,70,0.18) !important;
+}
+.st-key-agent_chat_drawer [data-testid="stVerticalBlock"] { gap: 0.55rem; }
+.st-key-agent_chat_drawer [data-testid="stHorizontalBlock"] { align-items: center; gap: 0.5rem; }
+/* Drawer header stays visible and the close button is always obvious. */
+.st-key-agent_chat_header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 1000002 !important;
+    background: linear-gradient(180deg, #F1F6FF 0%, #F1F6FF 90%, rgba(241,246,255,0.96) 100%) !important;
+    padding: 0.2rem 0 0.35rem !important;
+    margin: -0.1rem 0 0 !important;
+    border-bottom: 0 !important;
+}
+.st-key-agent_chat_header [data-testid="stButton"] > button {
+    min-width: 38px !important;
+    width: 38px !important;
+    height: 38px !important;
+    padding: 0 !important;
+    border: 1px solid #C7D7EE !important;
     border-radius: 10px !important;
-    color: #e6edf3 !important;
+    background: #FFFFFF !important;
+    color: #243B5A !important;
+    font-size: 1.05rem !important;
+    box-shadow: 0 2px 7px rgba(23,43,77,0.09) !important;
+}
+.st-key-agent_chat_header [data-testid="stButton"] > button p { color: #243B5A !important; }
+.st-key-agent_chat_header [data-testid="stButton"] > button:hover {
+    background: #E5EFFF !important;
+    border-color: #8FB4EE !important;
+}
+.st-key-agent_chat_drawer [data-testid="stButton"] > button {
+    border-radius: 9px !important; min-height: 38px;
+}
+.st-key-agent_chat_drawer [data-testid="stTextArea"] textarea {
+    border: 1px solid #B8C7DC !important; border-radius: 10px !important;
+    background: #FFFFFF !important;
+}
+.stApp .chat-drawer-title { font-size: 1.08rem; font-weight: 750; color: #172B4D; }
+.stApp .chat-drawer-subtitle { font-size: 0.8rem; color: #607491; margin-top: 3px; }
+.stApp .chat-drawer-welcome {
+    padding: 0.85rem 0.95rem; border: 1px solid #D4E1F4; border-radius: 12px;
+    background: linear-gradient(135deg, #E5EFFF 0%, #F8FBFF 100%); color: #344563;
+    font-size: 0.84rem; line-height: 1.5; margin: 0.25rem 0 0.4rem;
+}
+.stApp .chat-drawer-divider {
+    border-top: 1px solid #C9D8EC; margin: 0.45rem 0 0.65rem;
+}
+.stApp .chat-drawer-footer-note { color:#6B778C; font-size:0.72rem; line-height:1.35; }
+.st-key-agent_chat_drawer [data-testid="stChatMessage"] {
+    background: #FFFFFF; border: 1px solid #D8E3F1; border-radius: 12px;
+    padding: 0.45rem 0.65rem; margin-bottom: 0.4rem;
+    box-shadow: 0 2px 7px rgba(23,43,77,0.035);
+}
+.st-key-agent_chat_drawer [data-testid="stChatMessage"] p { color: #172B4D !important; }
+.st-key-agent_chat_drawer [data-testid="stForm"] {
+    position: sticky !important;
+    bottom: 0 !important;
+    background: #FFFFFF !important;
+    border: 1px solid #D1DFF0 !important;
+    border-radius: 13px !important;
+    padding: 0.7rem !important;
+    box-shadow: 0 5px 18px rgba(9,30,66,0.09) !important;
+}
+.st-key-agent_chat_drawer [data-testid="stFormSubmitButton"] > button {
+    background: linear-gradient(135deg, #635BFF, #0C66E4) !important;
+    color: #FFFFFF !important;
+}
+/* Strong last-in-cascade selector for selectbox borders in normal state. */
+[data-testid="stSelectbox"] [data-baseweb="select"] > div,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div {
+    border: 1px solid #AAB7CA !important;
+    background: #FFFFFF !important;
+    border-radius: 8px !important;
+    box-shadow: inset 0 0 0 1px rgba(23,43,77,0.025) !important;
+}
+[data-testid="stSelectbox"] [data-baseweb="select"] > div:hover,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div:hover { border-color: #7183A0 !important; }
+[data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within,
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div:focus-within {
+    border-color: #388BFF !important;
+    box-shadow: 0 0 0 3px rgba(56,139,255,0.22) !important;
+}
+@media (max-width: 640px) {
+    .st-key-app_topbar { padding:0.45rem 0.55rem; min-height:56px; }
+    .stApp .topbar-subtitle { display:none; }
+    .st-key-app_topbar [data-testid="stButton"] > button { padding:0.45rem 0.55rem !important; font-size:0.82rem; }
+    .st-key-agent_chat_drawer { right:0 !important; width:min(100vw, 420px) !important; top:4.1rem !important; max-height:calc(100dvh - 4.1rem) !important; border-radius:16px 0 0 0 !important; }
 }
 
-.stTabs [data-baseweb="tab-list"] {
-    background: rgba(22,27,34,0.8);
-    border-radius: 12px;
-    gap: 4px;
-    padding: 4px;
-    border: 1px solid rgba(99,179,237,0.15);
-}
-.stTabs [data-baseweb="tab"] {
-    background: transparent;
-    color: #8b949e;
-    border-radius: 8px;
-    font-weight: 500;
-    transition: all 0.2s;
-}
-.stTabs [aria-selected="true"] {
-    background: rgba(31,111,235,0.25) !important;
-    color: #63b3ed !important;
-}
-
-hr { border-color: rgba(99,179,237,0.15) !important; }
-
-.badge {
-    display: inline-block;
-    padding: 2px 12px;
-    border-radius: 20px;
-    font-size: 0.78rem;
-    font-weight: 600;
-    letter-spacing: 0.4px;
-}
-
-.ticket-card {
-    background: rgba(22,27,34,0.85);
-    border: 1px solid rgba(99,179,237,0.18);
-    border-radius: 14px;
-    padding: 1.2rem 1.5rem;
-    margin-bottom: 0.8rem;
-    backdrop-filter: blur(10px);
-    transition: transform 0.2s, box-shadow 0.2s;
-}
-.ticket-card:hover {
-    transform: translateX(4px);
-    box-shadow: 0 4px 20px rgba(99,179,237,0.12);
-    border-color: rgba(99,179,237,0.35);
-}
-
-.section-header {
-    font-size: 1.3rem;
-    font-weight: 700;
-    color: #e6edf3;
-    margin-bottom: 1rem;
-    padding-bottom: 0.5rem;
-    border-bottom: 2px solid rgba(31,111,235,0.4);
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -206,21 +500,6 @@ def api_patch(ticket_id: str, data: dict):
         return None, str(e)
 
 
-def api_delete(ticket_id: str):
-    try:
-        r = requests.delete(f"{API_BASE}/{ticket_id}", timeout=6)
-        r.raise_for_status()
-        return True, None
-    except requests.HTTPError as e:
-        try:
-            detail = e.response.json().get("detail", str(e))
-        except Exception:
-            detail = str(e)
-        return False, detail
-    except Exception as e:
-        return False, str(e)
-
-
 def fmt_dt(iso_str: str) -> str:
     try:
         return datetime.fromisoformat(iso_str).strftime("%d %b %Y, %H:%M")
@@ -229,35 +508,126 @@ def fmt_dt(iso_str: str) -> str:
 
 
 def priority_badge(p: str) -> str:
-    c = PRIORITY_COLORS.get(p, "#aaa")
-    return f'<span class="badge" style="background:{c}22;color:{c};border:1px solid {c}55">{p}</span>'
+    c = PRIORITY_COLORS.get(p, "#6B778C")
+    return f'<span class="badge" style="background:{c}1F;color:{c}">{p}</span>'
 
 
 def status_badge(s: str) -> str:
-    c = STATUS_COLORS.get(s, "#aaa")
-    return f'<span class="badge" style="background:{c}22;color:{c};border:1px solid {c}55">{s}</span>'
+    c = STATUS_COLORS.get(s, "#6B778C")
+    return f'<span class="badge" style="background:{c}1F;color:{c}">{s}</span>'
+
+
+# ── Display-only helpers (HTML rendering) ────────────────────────────────────
+
+def page_header(title: str, subtitle: str):
+    st.markdown(
+        f'<div class="crumb">Projects / IT Ops / {title}</div>'
+        f'<div class="page-title">{title}</div>'
+        f'<p class="page-sub">{subtitle}</p>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("---")
+
+
+def bar_panel(title: str, counts: pd.DataFrame, label_col: str, color_for):
+    top = max(int(counts["Count"].max()), 1)
+    rows = ""
+    for _, r in counts.iterrows():
+        pct = int(r["Count"]) / top * 100
+        rows += (
+            f'<div class="bar-row"><div class="bar-label">{escape(str(r[label_col]))}</div>'
+            f'<div class="bar-track"><div class="bar-fill" style="width:{pct:.0f}%;background:{color_for(r[label_col])}"></div></div>'
+            f'<div class="bar-count">{int(r["Count"])}</div></div>'
+        )
+    st.markdown(
+        f'<div class="panel"><div class="section-header">{title}</div>{rows}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def matrix_table(m: pd.DataFrame):
+    peak = max(int(m.values.max()), 1)
+    head = "<th></th>" + "".join(f"<th style='text-align:center'>{c}</th>" for c in m.columns)
+    body = ""
+    for idx, row in m.iterrows():
+        cells = ""
+        for v in row:
+            v = int(v)
+            a = 0.0 if v == 0 else 0.12 + 0.78 * v / peak
+            fg = "#fff" if a > 0.5 else "#172B4D"
+            cells += f'<td class="mx-cell" style="background:rgba(12,102,228,{a:.2f});color:{fg}">{v}</td>'
+        body += f'<tr><td class="mx-key">{idx}</td>{cells}</tr>'
+    st.markdown(
+        f'<div class="tbl-wrap"><table class="tbl"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def ticket_table(d: pd.DataFrame):
+    head = "".join(f"<th>{c}</th>" for c in d.columns)
+    body = ""
+    for _, r in d.iterrows():
+        tds = ""
+        for c in d.columns:
+            v = r[c]
+            empty = v is None or v == "" or (isinstance(v, float) and pd.isna(v))
+            v = "—" if empty else str(v)
+            if c == "ID":
+                tds += f'<td><span class="ticket-key">{escape(v)}</span></td>'
+            elif c == "Priority" and not empty:
+                tds += f"<td>{priority_badge(v)}</td>"
+            elif c == "Status" and not empty:
+                tds += f"<td>{status_badge(v)}</td>"
+            else:
+                tds += f"<td>{escape(v)}</td>"
+        body += f"<tr>{tds}</tr>"
+    st.markdown(
+        f'<div class="tbl-wrap"><table class="tbl"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🛡️ IT Ops Copilot")
+    st.markdown(
+        '<div class="brand"><div class="brand-logo">🛡️</div>'
+        '<div><div class="brand-name">IT Ops Copilot</div>'
+        '<div class="brand-sub">Service management</div></div></div>',
+        unsafe_allow_html=True,
+    )
     st.markdown("---")
     page = st.radio(
         "Navigate",
-        ["📊 Dashboard", "🎫 All Tickets", "➕ New Ticket", "✏️ Update Ticket", "🗑️ Delete Ticket"],
+        ["📊 Dashboard", "🎫 All Tickets", "➕ New Ticket", "✏️ Update Ticket"],
         label_visibility="collapsed",
+        format_func=lambda x: NAV_LABELS[x],
     )
     st.markdown("---")
-    st.markdown("### 🔌 API Status")
-    tickets_probe, probe_err = api_get("", params={})
-    if probe_err:
-        st.error("⚠️ Backend Offline")
-        st.caption(probe_err)
-    else:
-        st.success("✅ Backend Online")
-        st.caption("http://localhost:8000")
-    st.markdown("---")
-    st.caption("Built with FastAPI + Streamlit")
+
+
+# ── Persistent top navigation and right-side agent drawer ────────────────────
+if "show_chat_panel" not in st.session_state:
+    st.session_state.show_chat_panel = False
+
+with st.container(key="app_topbar"):
+    nav_brand, nav_action = st.columns([6, 2], vertical_alignment="center")
+    with nav_brand:
+        st.markdown(
+            '<div class="topbar-brand">'
+            '<div class="topbar-mark">✦</div>'
+            '<div><div class="topbar-title">IT Ops Copilot</div>'
+            '<div class="topbar-subtitle">Incident intelligence workspace</div></div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+    with nav_action:
+        if st.button("✦  Chat with Agent", key="global_chat_toggle", use_container_width=True):
+            st.session_state.show_chat_panel = not st.session_state.show_chat_panel
+            st.rerun()
+
+if st.session_state.show_chat_panel:
+    with st.container(key="agent_chat_drawer"):
+        render_chat_panel()
 
 
 # ── Fetch all tickets (cached per run) ───────────────────────────────────────
@@ -271,9 +641,7 @@ def fetch_all_tickets():
 # PAGE: Dashboard
 # ════════════════════════════════════════════════════════════════════════════
 if page == "📊 Dashboard":
-    st.markdown('<h1 style="color:#e6edf3;font-size:2.2rem;font-weight:800;margin-bottom:0">📊 Dashboard</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="color:#8b949e;margin-top:0.2rem">Real-time overview of all IT incidents & tickets</p>', unsafe_allow_html=True)
-    st.markdown("---")
+    page_header("Dashboard", "Real-time overview of all IT incidents and tickets")
 
     tickets, err = fetch_all_tickets()
 
@@ -294,55 +662,53 @@ if page == "📊 Dashboard":
     inp_cnt  = len(df[df["status"] == "In Progress"])
 
     c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Total Tickets",  total)
-    c2.metric("🔴 Open",         open_cnt)
-    c3.metric("🟠 In Progress",  inp_cnt)
-    c4.metric("🚨 Critical",     crit_cnt)
-    c5.metric("✅ Resolved",     res_cnt)
+    c1.metric("Total tickets", total)
+    c2.metric("Open",          open_cnt)
+    c3.metric("In progress",   inp_cnt)
+    c4.metric("Critical",      crit_cnt)
+    c5.metric("Resolved",      res_cnt)
 
-    st.markdown("---")
+    st.markdown("<div style='height:1.2rem'></div>", unsafe_allow_html=True)
 
     col_a, col_b, col_c = st.columns(3)
 
     with col_a:
-        st.markdown('<div class="section-header">🗂️ By Category</div>', unsafe_allow_html=True)
         cat_counts = df["category"].value_counts().reset_index()
         cat_counts.columns = ["Category", "Count"]
-        st.bar_chart(cat_counts.set_index("Category"), color="#1f6feb")
+        bar_panel("By category", cat_counts, "Category",
+                  lambda k: BLUES[CATEGORIES.index(k) % len(BLUES)] if k in CATEGORIES else BLUES[0])
 
     with col_b:
-        st.markdown('<div class="section-header">🚦 By Priority</div>', unsafe_allow_html=True)
         pri_counts = df["priority"].value_counts().reset_index()
         pri_counts.columns = ["Priority", "Count"]
-        st.bar_chart(pri_counts.set_index("Priority"), color="#ffa502")
+        bar_panel("By priority", pri_counts, "Priority", lambda k: PRIORITY_COLORS.get(k, "#6B778C"))
 
     with col_c:
-        st.markdown('<div class="section-header">📋 By Status</div>', unsafe_allow_html=True)
         st_counts = df["status"].value_counts().reset_index()
         st_counts.columns = ["Status", "Count"]
-        st.bar_chart(st_counts.set_index("Status"), color="#2ed573")
+        bar_panel("By status", st_counts, "Status", lambda k: STATUS_COLORS.get(k, "#6B778C"))
 
     st.markdown("---")
-    st.markdown('<div class="section-header">🕐 Recent Incidents</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Recent incidents</div>', unsafe_allow_html=True)
     recent = df.head(8)
     for _, row in recent.iterrows():
         icon = CATEGORY_ICONS.get(row["category"], "🔧")
         st.markdown(f"""
-        <div class="ticket-card">
+        <div class="ticket-card" style="border-left-color:{PRIORITY_COLORS.get(row['priority'], '#0C66E4')}">
             <div style="display:flex;justify-content:space-between;align-items:center;">
                 <div>
-                    <span style="color:#8b949e;font-size:0.8rem;font-weight:600">{row['ticket_id']}</span>
+                    <span class="ticket-key">{row['ticket_id']}</span>
                     &nbsp;&nbsp;
                     {priority_badge(row['priority'])}
                     &nbsp;
                     {status_badge(row['status'])}
                 </div>
-                <span style="color:#8b949e;font-size:0.8rem">{fmt_dt(row['created_at'])}</span>
+                <span class="ticket-meta">{fmt_dt(row['created_at'])}</span>
             </div>
-            <div style="margin-top:0.5rem;color:#e6edf3;font-weight:600;font-size:1rem">
+            <div class="ticket-title">
                 {icon} {row['title']}
             </div>
-            <div style="margin-top:0.3rem;color:#8b949e;font-size:0.85rem">
+            <div class="ticket-meta" style="margin-top:0.3rem">
                 📂 {row['category']}
                 {"&nbsp;&nbsp;🖥️ " + str(row['affected_server']) if row.get('affected_server') else ""}
                 {"&nbsp;&nbsp;👤 " + str(row['assignee']) if row.get('assignee') else ""}
@@ -351,21 +717,19 @@ if page == "📊 Dashboard":
         """, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.markdown('<div class="section-header">📈 Priority × Status Matrix</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Priority × status matrix</div>', unsafe_allow_html=True)
     if not df.empty:
         matrix = pd.crosstab(df["priority"], df["status"]).reindex(
             index=PRIORITIES, columns=STATUSES, fill_value=0
         ).fillna(0).astype(int)
-        st.dataframe(matrix, use_container_width=True)
+        matrix_table(matrix)
 
 
 # ════════════════════════════════════════════════════════════════════════════
 # PAGE: All Tickets
 # ════════════════════════════════════════════════════════════════════════════
 elif page == "🎫 All Tickets":
-    st.markdown('<h1 style="color:#e6edf3;font-size:2.2rem;font-weight:800;margin-bottom:0">🎫 All Tickets</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="color:#8b949e;margin-top:0.2rem">Browse, filter and inspect every incident ticket</p>', unsafe_allow_html=True)
-    st.markdown("---")
+    page_header("All Tickets", "Browse, filter and inspect every incident ticket")
 
     fc1, fc2, fc3, fc4 = st.columns(4)
     with fc1:
@@ -405,11 +769,15 @@ elif page == "🎫 All Tickets":
             df_view = pd.DataFrame(tickets)[display_cols].copy()
             df_view["created_at"] = df_view["created_at"].apply(fmt_dt)
             df_view.columns = ["ID", "Title", "Category", "Priority", "Status", "Assignee", "Server", "Created"]
-            st.dataframe(df_view, use_container_width=True, hide_index=True)
+            ticket_table(df_view)
         else:
             for t in tickets:
                 icon = CATEGORY_ICONS.get(t["category"], "🔧")
                 with st.expander(f"{t['ticket_id']} — {t['title']}", expanded=False):
+                    st.markdown(
+                        f"{priority_badge(t['priority'])}&nbsp;{status_badge(t['status'])}",
+                        unsafe_allow_html=True,
+                    )
                     r1, r2, r3 = st.columns(3)
                     r1.markdown(f"**Category:** {icon} {t['category']}")
                     r2.markdown(f"**Priority:** {t['priority']}")
@@ -431,12 +799,10 @@ elif page == "🎫 All Tickets":
 # PAGE: New Ticket
 # ════════════════════════════════════════════════════════════════════════════
 elif page == "➕ New Ticket":
-    st.markdown('<h1 style="color:#e6edf3;font-size:2.2rem;font-weight:800;margin-bottom:0">➕ Create New Ticket</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="color:#8b949e;margin-top:0.2rem">Log a new IT incident or support request</p>', unsafe_allow_html=True)
-    st.markdown("---")
+    page_header("Create Ticket", "Log a new IT incident or support request")
 
     with st.form("create_ticket_form", clear_on_submit=True):
-        st.markdown('<div class="section-header">📝 Ticket Details</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-header">Ticket details</div>', unsafe_allow_html=True)
 
         f1, f2 = st.columns(2)
         with f1:
@@ -458,7 +824,7 @@ elif page == "➕ New Ticket":
         with c3:
             assignee = st.text_input("Assignee", placeholder="e.g. alice@corp.com")
 
-        submitted = st.form_submit_button("🚀 Create Ticket", use_container_width=True)
+        submitted = st.form_submit_button("Create ticket", use_container_width=True)
 
     if submitted:
         if not title or not description:
@@ -478,9 +844,9 @@ elif page == "➕ New Ticket":
             else:
                 st.success(f"✅ Ticket **{result['ticket_id']}** created successfully!")
                 st.markdown(f"""
-                <div class="ticket-card" style="margin-top:1rem">
-                    <div style="color:#8b949e;font-size:0.8rem">{result['ticket_id']}</div>
-                    <div style="color:#e6edf3;font-weight:700;font-size:1.1rem;margin-top:0.3rem">{result['title']}</div>
+                <div class="ticket-card" style="margin-top:1rem;border-left-color:{PRIORITY_COLORS.get(result['priority'], '#0C66E4')}">
+                    <div class="ticket-key">{result['ticket_id']}</div>
+                    <div class="ticket-title" style="font-size:1.05rem">{result['title']}</div>
                     <div style="margin-top:0.5rem">
                         {priority_badge(result['priority'])}
                         &nbsp;
@@ -495,9 +861,7 @@ elif page == "➕ New Ticket":
 # PAGE: Update Ticket
 # ════════════════════════════════════════════════════════════════════════════
 elif page == "✏️ Update Ticket":
-    st.markdown('<h1 style="color:#e6edf3;font-size:2.2rem;font-weight:800;margin-bottom:0">✏️ Update Ticket</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="color:#8b949e;margin-top:0.2rem">Modify status, assignee, resolution and more</p>', unsafe_allow_html=True)
-    st.markdown("---")
+    page_header("Update Ticket", "Modify status, assignee, resolution and more")
 
     all_tickets, err = fetch_all_tickets()
     if err:
@@ -514,7 +878,7 @@ elif page == "✏️ Update Ticket":
 
     st.markdown("---")
 
-    with st.expander("📄 Current Ticket Details", expanded=True):
+    with st.expander("Current ticket details", expanded=True):
         pc1, pc2, pc3 = st.columns(3)
         pc1.markdown(f"**Status:** {selected['status']}")
         pc2.markdown(f"**Priority:** {selected['priority']}")
@@ -524,7 +888,7 @@ elif page == "✏️ Update Ticket":
             st.info(f"**Current resolution:** {selected['resolution_notes']}")
 
     st.markdown("---")
-    st.markdown('<div class="section-header">🔧 Apply Changes</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Apply changes</div>', unsafe_allow_html=True)
 
     with st.form("update_ticket_form"):
         u1, u2, u3 = st.columns(3)
@@ -550,7 +914,7 @@ elif page == "✏️ Update Ticket":
             height=80,
         )
 
-        update_btn = st.form_submit_button("💾 Save Changes", use_container_width=True)
+        update_btn = st.form_submit_button("Save changes", use_container_width=True)
 
     if update_btn:
         payload = {
@@ -569,58 +933,3 @@ elif page == "✏️ Update Ticket":
         else:
             st.success(f"✅ Ticket **{result['ticket_id']}** updated — Status: **{result['status']}**")
             st.cache_data.clear()
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# PAGE: Delete Ticket
-# ════════════════════════════════════════════════════════════════════════════
-elif page == "🗑️ Delete Ticket":
-    st.markdown('<h1 style="color:#e6edf3;font-size:2.2rem;font-weight:800;margin-bottom:0">🗑️ Delete Ticket</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="color:#8b949e;margin-top:0.2rem">Permanently remove a ticket from the system</p>', unsafe_allow_html=True)
-    st.markdown("---")
-
-    all_tickets, err = fetch_all_tickets()
-    if err:
-        st.error(f"⚠️ {err}")
-        st.stop()
-
-    if not all_tickets:
-        st.info("No tickets found.")
-        st.stop()
-
-    ticket_options = {f"{t['ticket_id']} — {t['title']}": t for t in all_tickets}
-    selected_label = st.selectbox("Select Ticket to Delete", list(ticket_options.keys()))
-    selected = ticket_options[selected_label]
-
-    st.markdown("---")
-    st.markdown(f"""
-    <div class="ticket-card" style="border-color:rgba(255,71,87,0.35)">
-        <div style="display:flex;justify-content:space-between">
-            <div>
-                <span style="color:#ff4757;font-weight:700">{selected['ticket_id']}</span>
-                &nbsp;&nbsp;
-                {priority_badge(selected['priority'])}
-                &nbsp;
-                {status_badge(selected['status'])}
-            </div>
-        </div>
-        <div style="color:#e6edf3;font-weight:600;margin-top:0.5rem;font-size:1.05rem">
-            {CATEGORY_ICONS.get(selected['category'], '🔧')} {selected['title']}
-        </div>
-        <div style="color:#8b949e;font-size:0.85rem;margin-top:0.3rem">
-            {selected['description'][:150]}{'...' if len(selected['description']) > 150 else ''}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.warning("⚠️ This action is **permanent** and cannot be undone.")
-
-    confirm = st.checkbox(f"I confirm I want to delete **{selected['ticket_id']}**")
-    if st.button("🗑️ Delete Ticket", disabled=not confirm):
-        ok, err = api_delete(selected["ticket_id"])
-        if err:
-            st.error(f"❌ Delete failed: {err}")
-        else:
-            st.success(f"✅ Ticket **{selected['ticket_id']}** has been deleted.")
-            st.cache_data.clear()
-            st.rerun()

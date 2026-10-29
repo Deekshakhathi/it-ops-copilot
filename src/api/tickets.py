@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from src.database.db import SessionLocal
 from src.models.ticket import Ticket
+from src.vector_store.chroma_db import collection, index_ticket
 
 router = APIRouter(prefix="/api/tickets", tags=["Tickets"])
 
@@ -18,6 +19,30 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def sync_vector(ticket: Optional[Ticket]):
+    """Keep ChromaDB aligned with SQLite after a write.
+
+    SQLite is authoritative; vector indexing is best-effort so that a
+    vector-store hiccup can never break ticket CRUD. index_ticket() upserts on
+    the stable ticket_id, so creates and updates are idempotent.
+    """
+    if ticket is None:
+        return
+    try:
+        index_ticket(ticket)
+    except Exception:
+        pass
+
+
+def remove_vector(ticket_id: Optional[str]):
+    if ticket_id is None:
+        return
+    try:
+        collection.delete(ids=[ticket_id])
+    except Exception:
+        pass
 
 
 class TicketCreate(BaseModel):
@@ -97,6 +122,8 @@ def create_ticket(payload: TicketCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(ticket)
 
+    sync_vector(ticket)
+
     return ticket_to_dict(ticket)
 
 
@@ -166,6 +193,8 @@ def update_ticket(
     db.commit()
     db.refresh(ticket)
 
+    sync_vector(ticket)
+
     return ticket_to_dict(ticket)
 
 
@@ -177,6 +206,8 @@ def delete_ticket(ticket_id: str, db: Session = Depends(get_db)):
 
     if ticket is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
+
+    remove_vector(ticket.ticket_id)
 
     db.delete(ticket)
     db.commit()

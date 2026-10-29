@@ -1,0 +1,8 @@
+Files in this folder are replacements/additions for the existing frontend.
+
+1. Replace your existing frontend/app.py with app.py from this folder.
+2. Copy components/ into the same frontend/ folder so the path is frontend/components/chat_panel.py.
+3. Keep your existing requirements.txt; this change uses Streamlit already used by the project and adds no package dependency.
+4. Run from project root: .\.venv\Scripts\python.exe -m streamlit run frontend/app.py
+
+The chat panel is UI-only for now. The supplied frontend code contains ticket API helpers but no agent-chat endpoint, so it deliberately does not invent assistant replies.
